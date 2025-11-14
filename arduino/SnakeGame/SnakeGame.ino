@@ -7,42 +7,44 @@
 
 BLEController bleController;
 WebSocketManager wsManager;
-MusicPlayer musicPlayer(DAC_PIN);
+MusicPlayer musicPlayer;
 SnakeGame game;
+
+bool musicStarted = false;
 
 void setup() {
   Serial.begin(115200);
   randomSeed(analogRead(0));
   
   Serial.println("\n=== Snake 2 Jugadores ===");
+  Serial.println("DFPlayer: Música de fondo");
+  Serial.println("DAC GPIO25: Efectos de sonido");
   
   musicPlayer.begin();
-  delay(500);
-  musicPlayer.playIntro();
+  delay(1000);
   
   bleController.begin();
   wsManager.begin();
   game.init();
   
-  Serial.println("Sistema listo - 2 jugadores");
+  Serial.println("Sistema listo");
 }
 
 void loop() {
   wsManager.loop();
   
-  if (!game.hasStarted() && !bleController.bothPlayersConnected()) {
-    delay(100);
-    return;
+  // Iniciar música cuando se conecte al WebSocket
+  if (wsManager.isConnected() && !musicStarted && musicPlayer.isInitialized()) {
+    musicPlayer.startBackgroundMusic();
+    musicStarted = true;
   }
-
-  // Get commands from both players
+  
   Direction cmd1 = bleController.getPlayer1Command();
   Direction cmd2 = bleController.getPlayer2Command();
   
   if (cmd1 != DIR_NONE) {
     if (!game.hasStarted()) {
       game.start();
-      musicPlayer.playMove();
     }
     game.setPlayer1Direction(cmd1);
   }
@@ -50,7 +52,6 @@ void loop() {
   if (cmd2 != DIR_NONE) {
     if (!game.hasStarted()) {
       game.start();
-      musicPlayer.playMove();
     }
     game.setPlayer2Direction(cmd2);
   }
@@ -62,31 +63,33 @@ void loop() {
     
     game.update(levelUp, p1Ate, p2Ate);
     
+    // Efecto de comer con DAC
     if (p1Ate || p2Ate) {
-      musicPlayer.playEat();
+      musicPlayer.playEatEffect();
     }
     
+    // Subir nivel
     if (levelUp) {
-      musicPlayer.playLevelUp();
+      musicPlayer.playLevelUpEffect();
       Serial.printf("¡NIVEL %d!\n", game.getLevel());
     }
     
     wsManager.sendJSON(game.toJSON());
     
+    // Game Over
     if (game.hasEnded()) {
-      musicPlayer.playCrash();
-      delay(300);
-      musicPlayer.playGameOver();
+      musicPlayer.playDeathEffect();
       
       String msg = "{\"type\":\"gameover\",\"totalScore\":" + String(game.getTotalScore()) + 
                    ",\"level\":" + String(game.getLevel()) + "}";
       wsManager.sendJSON(msg);
       
-      Serial.printf("Game Over - Nivel: %d\n", game.getLevel());
+      Serial.println("Game Over");
       
       delay(3000);
       game.init();
-      musicPlayer.playIntro();
+      
+      // La música 0001 sigue en loop automáticamente
     }
     
     delay(game.getSpeed());

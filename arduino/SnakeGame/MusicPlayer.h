@@ -1,25 +1,19 @@
 #ifndef MUSIC_PLAYER_H
 #define MUSIC_PLAYER_H
 
+#include <DFRobotDFPlayerMini.h>
+#include <HardwareSerial.h>
 #include <driver/dac.h>
 #include "Config.h"
 
 class MusicPlayer {
 private:
-  dac_channel_t channel;
-  bool playing;
-  unsigned long lastTime;
-  int phase;
+  DFRobotDFPlayerMini player;
+  HardwareSerial* serial;
+  dac_channel_t dacChannel;
+  bool initialized;
   
-  // Tabla de onda cuadrada para sonidos retro arcade
-  const uint8_t squareWave[WAVE_SAMPLES] = {
-    255, 255, 255, 255, 255, 255, 255, 255,
-    255, 255, 255, 255, 255, 255, 255, 255,
-    0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0
-  };
-  
-  // Tabla de onda triangular para efectos suaves
+  // Onda triangular para efecto de comer (suave y agradable)
   const uint8_t triangleWave[WAVE_SAMPLES] = {
     0, 16, 32, 48, 64, 80, 96, 112,
     128, 144, 160, 176, 192, 208, 224, 240,
@@ -27,95 +21,98 @@ private:
     128, 112, 96, 80, 64, 48, 32, 16
   };
   
-  // Tabla de onda diente de sierra para bajos
-  const uint8_t sawtoothWave[WAVE_SAMPLES] = {
-    0, 8, 16, 24, 32, 40, 48, 56,
-    64, 72, 80, 88, 96, 104, 112, 120,
-    128, 136, 144, 152, 160, 168, 176, 184,
-    192, 200, 208, 216, 224, 232, 240, 248
-  };
-  
-  void playWave(const uint8_t* wave, int freq, int duration) {
+  void playDACWave(const uint8_t* wave, int freq, int duration) {
     int samples = (SAMPLE_RATE * duration) / 1000;
     int period = SAMPLE_RATE / freq;
     
     for (int i = 0; i < samples; i++) {
       int index = (i * WAVE_SAMPLES / period) % WAVE_SAMPLES;
-      dac_output_voltage(channel, wave[index]);
+      dac_output_voltage(dacChannel, wave[index]);
       delayMicroseconds(1000000 / SAMPLE_RATE);
     }
-    dac_output_voltage(channel, 128); // Silencio (mitad del rango)
+    dac_output_voltage(dacChannel, 128);
   }
 
 public:
-  MusicPlayer(int pin) : playing(false), lastTime(0), phase(0) {
-    channel = (pin == 25) ? DAC_CHANNEL_1 : DAC_CHANNEL_2;
+  MusicPlayer() : initialized(false) {
+    serial = new HardwareSerial(2);
+    dacChannel = DAC_CHANNEL_1; // GPIO 25
   }
   
   void begin() {
-    dac_output_enable(channel);
-    dac_output_voltage(channel, 128); // Nivel medio = silencio
-    Serial.println("DAC Audio inicializado");
-  }
-  
-  // Sonido de comer (burbuja arcade)
-  void playEat() {
-    for (int f = 400; f <= 800; f += 50) {
-      playWave(triangleWave, f, 15);
+    // Inicializar DFPlayer
+    serial->begin(9600, SERIAL_8N1, DFPLAYER_RX, DFPLAYER_TX);
+    delay(500);
+    
+    if (player.begin(*serial)) {
+      initialized = true;
+      player.volume(25);
+      delay(100);
+      Serial.println("DFPlayer Mini OK");
+    } else {
+      Serial.println("Error DFPlayer Mini");
+      initialized = false;
     }
+    
+    // Inicializar DAC
+    dac_output_enable(dacChannel);
+    dac_output_voltage(dacChannel, 128);
+    Serial.println("DAC inicializado en GPIO 25");
   }
   
-  // Sonido de subir de nivel (fanfarria ascendente)
-  void playLevelUp() {
-    int notes[] = {262, 330, 392, 523, 659}; // C4, E4, G4, C5, E5
-    for (int i = 0; i < 5; i++) {
-      playWave(squareWave, notes[i], 80);
+  void startBackgroundMusic() {
+    if (!initialized) return;
+    
+    // Reproducir 0001 en modo loop
+    player.loop(1);
+    delay(50);
+    Serial.println("Música de fondo iniciada (0001 loop)");
+  }
+  
+  void playEatEffect() {
+    // Efecto de "burbuja" ascendente usando DAC
+    for (int f = 400; f <= 1000; f += 100) {
+      playDACWave(triangleWave, f, 20);
+    }
+    Serial.println("Efecto comer reproducido (DAC)");
+  }
+  
+  void playDeathEffect() {
+    // Efecto descendente con DAC
+    for (int f = 800; f >= 200; f -= 100) {
+      playDACWave(triangleWave, f, 30);
+    }
+    Serial.println("Efecto muerte reproducido (DAC)");
+  }
+  
+  void playLevelUpEffect() {
+    // Arpeggio ascendente
+    int notes[] = {440, 554, 659, 880};
+    for (int i = 0; i < 4; i++) {
+      playDACWave(triangleWave, notes[i], 60);
       delay(20);
     }
-    playWave(squareWave, 784, 200); // G5 sostenido
   }
   
-  // Sonido de game over (descendente trágico)
-  void playGameOver() {
-    int notes[] = {392, 370, 349, 330, 294, 262}; // G4 -> C4
-    for (int i = 0; i < 6; i++) {
-      playWave(sawtoothWave, notes[i], 150);
-      delay(50);
-    }
-    // Efecto de explosión
-    for (int i = 0; i < 30; i++) {
-      playWave(squareWave, random(50, 200), 10);
-    }
+  void stopMusic() {
+    if (!initialized) return;
+    player.pause();
   }
   
-  // Música de inicio (melodía corta arcade)
-  void playIntro() {
-    int melody[] = {523, 659, 784, 1047}; // C5, E5, G5, C6
-    for (int i = 0; i < 4; i++) {
-      playWave(squareWave, melody[i], 120);
-      delay(30);
-    }
+  void resumeMusic() {
+    if (!initialized) return;
+    player.start();
   }
   
-  // Efecto de movimiento (tick sutil)
-  void playMove() {
-    playWave(squareWave, 1000, 5);
+  void setVolume(int vol) {
+    if (!initialized) return;
+    if (vol < 0) vol = 0;
+    if (vol > 30) vol = 30;
+    player.volume(vol);
   }
   
-  // Efecto de colisión (crash)
-  void playCrash() {
-    for (int i = 0; i < 20; i++) {
-      playWave(squareWave, random(100, 300), 8);
-    }
-  }
-  
-  // Sonido ambiente de nivel (opcional, llamar periódicamente)
-  void playAmbient(int level) {
-    if (millis() - lastTime < 3000) return; // Cada 3 segundos
-    lastTime = millis();
-    
-    int baseFreq = 100 + (level * 20);
-    playWave(sawtoothWave, baseFreq, 50);
+  bool isInitialized() {
+    return initialized;
   }
 };
 

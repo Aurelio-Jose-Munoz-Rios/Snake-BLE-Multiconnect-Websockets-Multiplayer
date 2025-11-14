@@ -27,7 +27,6 @@ public:
   }
   
   void setDirection(int dx, int dy) {
-    // Evitar movimiento en dirección opuesta
     if (direction.x != -dx || direction.y != -dy) {
       direction = Point(dx, dy);
     }
@@ -67,13 +66,16 @@ private:
   bool gameOver;
   bool isStarted;
   
+  // CORRECCIÓN 1 y 2: Comida no aparece en obstáculos ni en zona prohibida
   void placeFood() {
     bool validPosition;
     do {
       validPosition = true;
-      food = Point(random(0, GAME_WIDTH), random(0, GAME_HEIGHT));
       
-      // Check collision with player 1
+      // Genera posición aleatoria (excluyendo primera fila para HUD)
+      food = Point(random(0, GAME_WIDTH), random(2, GAME_HEIGHT)); // Y >= 2
+      
+      // Check player 1
       for (int i = 0; i < player1.length; i++) {
         if (player1.body[i].equals(food)) {
           validPosition = false;
@@ -81,7 +83,7 @@ private:
         }
       }
       
-      // Check collision with player 2
+      // Check player 2
       if (validPosition) {
         for (int i = 0; i < player2.length; i++) {
           if (player2.body[i].equals(food)) {
@@ -91,7 +93,7 @@ private:
         }
       }
       
-      // Check collision with obstacles
+      // Check obstáculos
       if (validPosition) {
         for (int i = 0; i < obstacleCount; i++) {
           if (obstacles[i].equals(food)) {
@@ -100,6 +102,7 @@ private:
           }
         }
       }
+      
     } while (!validPosition);
   }
   
@@ -108,21 +111,24 @@ private:
     int centerX = GAME_WIDTH / 2;
     int centerY = GAME_HEIGHT / 2;
     
+    // Ajustar obstáculos para evitar la zona del HUD (Y < 2)
     switch(lvl) {
       case 1:
         break;
         
       case 2:
         for (int i = -2; i <= 2; i++) {
-          obstacles[obstacleCount++] = Point(centerX + i, centerY);
-          obstacles[obstacleCount++] = Point(centerX, centerY + i);
+          if (centerY + i >= 2) {
+            obstacles[obstacleCount++] = Point(centerX + i, centerY);
+            obstacles[obstacleCount++] = Point(centerX, centerY + i);
+          }
         }
         break;
         
       case 3:
         for (int i = 0; i < 3; i++) {
-          obstacles[obstacleCount++] = Point(i, i);
-          obstacles[obstacleCount++] = Point(GAME_WIDTH - 1 - i, i);
+          if (i >= 2) obstacles[obstacleCount++] = Point(i, i);
+          if (i >= 2) obstacles[obstacleCount++] = Point(GAME_WIDTH - 1 - i, i);
           obstacles[obstacleCount++] = Point(i, GAME_HEIGHT - 1 - i);
           obstacles[obstacleCount++] = Point(GAME_WIDTH - 1 - i, GAME_HEIGHT - 1 - i);
         }
@@ -158,8 +164,12 @@ private:
       case 7:
         for (int x = 3; x < GAME_WIDTH - 3; x += 2) {
           int y = (x % 4 == 0) ? GAME_HEIGHT / 3 : 2 * GAME_HEIGHT / 3;
-          for (int dy = -1; dy <= 1; dy++) {
-            obstacles[obstacleCount++] = Point(x, y + dy);
+          if (y >= 2) {
+            for (int dy = -1; dy <= 1; dy++) {
+              if (y + dy >= 2) {
+                obstacles[obstacleCount++] = Point(x, y + dy);
+              }
+            }
           }
         }
         break;
@@ -168,7 +178,7 @@ private:
         generateObstacles(2 + (lvl % 6));
         for (int i = 0; i < 5; i++) {
           int x = random(3, GAME_WIDTH - 3);
-          int y = random(3, GAME_HEIGHT - 3);
+          int y = random(3, GAME_HEIGHT - 3); // Y >= 3 para evitar HUD
           obstacles[obstacleCount++] = Point(x, y);
         }
         break;
@@ -183,11 +193,9 @@ public:
     gameOver = false;
     isStarted = false;
     
-    // Player 1 starts on the left
-    player1.init(5, GAME_HEIGHT/2, 1, 0);
-    
-    // Player 2 starts on the right
-    player2.init(GAME_WIDTH - 6, GAME_HEIGHT/2, -1, 0);
+    // Iniciar serpientes fuera de la zona del HUD (Y >= 2)
+    player1.init(5, GAME_HEIGHT/2 + 1, 1, 0);
+    player2.init(GAME_WIDTH - 6, GAME_HEIGHT/2 + 1, -1, 0);
     
     generateObstacles(level);
     placeFood();
@@ -232,21 +240,20 @@ public:
     
     if (!isStarted || gameOver) return false;
     
-    // Move both snakes
     if (player1.alive) player1.move();
     if (player2.alive) player2.move();
     
-    // Check wall collisions
+    // CORRECCIÓN 3: Verificar colisión con zona del HUD (Y < 2)
     if (player1.alive) {
       if (player1.body[0].x < 0 || player1.body[0].x >= GAME_WIDTH || 
-          player1.body[0].y < 0 || player1.body[0].y >= GAME_HEIGHT) {
+          player1.body[0].y < 2 || player1.body[0].y >= GAME_HEIGHT) {
         player1.alive = false;
       }
     }
     
     if (player2.alive) {
       if (player2.body[0].x < 0 || player2.body[0].x >= GAME_WIDTH || 
-          player2.body[0].y < 0 || player2.body[0].y >= GAME_HEIGHT) {
+          player2.body[0].y < 2 || player2.body[0].y >= GAME_HEIGHT) {
         player2.alive = false;
       }
     }
@@ -271,19 +278,16 @@ public:
     
     // Check collision between players
     if (player1.alive && player2.alive) {
-      // Head to head collision
       if (player1.body[0].equals(player2.body[0])) {
         player1.alive = false;
         player2.alive = false;
       } else {
-        // Player 1 head hits player 2 body
         for (int i = 1; i < player2.length; i++) {
           if (player1.body[0].equals(player2.body[i])) {
             player1.alive = false;
             break;
           }
         }
-        // Player 2 head hits player 1 body
         for (int i = 1; i < player1.length; i++) {
           if (player2.body[0].equals(player1.body[i])) {
             player2.alive = false;
@@ -293,7 +297,6 @@ public:
       }
     }
     
-    // Check if both players are dead
     if (!player1.alive && !player2.alive) {
       gameOver = true;
       return false;
@@ -327,7 +330,6 @@ public:
   String toJSON() const {
     String json = "{\"type\":\"game\",";
     
-    // Player 1
     json += "\"snake1\":[";
     if (player1.alive) {
       for (int i = 0; i < player1.length; i++) {
@@ -337,7 +339,6 @@ public:
     }
     json += "],";
     
-    // Player 2
     json += "\"snake2\":[";
     if (player2.alive) {
       for (int i = 0; i < player2.length; i++) {
@@ -347,7 +348,6 @@ public:
     }
     json += "],";
     
-    // Obstacles
     json += "\"obstacles\":[";
     for (int i = 0; i < obstacleCount; i++) {
       json += "[" + String(obstacles[i].x) + "," + String(obstacles[i].y) + "]";
